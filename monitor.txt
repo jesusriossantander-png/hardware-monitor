@@ -263,8 +263,7 @@ try {
     $cred = New-Object System.Management.Automation.PSCredential(
         $desde, (ConvertTo-SecureString $mailPassword -AsPlainText -Force)
     )
-    Send-MailMessage -To $para -From $desde -Subject $asunto -Body $html -BodyAsHtml `
-    -SmtpServer $smtpServidor -Port $smtpPuerto -Credential $cred
+    Send-MailMessage -To $para -From $desde -Subject $asunto -Body $html -BodyAsHtml ` -SmtpServer $smtpServidor -Port $smtpPuerto -Credential $cred
 } catch {
     $('ERROR | ' + $nombreEquipo + ' | ' + $fecha + ' | ' + $_.Exception.Message) |
         Out-File ($env:USERPROFILE + '\Desktop\error_hardware.txt') -Encoding UTF8
