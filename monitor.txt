@@ -5,9 +5,9 @@
 
 # ── CONFIGURACION DE MAIL ────────────────────────────────────
 $para         = 'riosjesus@esimsrl.com.ar'
-$desde        = 'riosjesus@esimsrl.com.ar'
-$mailPassword = 'uaF7iAqM21*C'
-$smtpServidor = 'mail.esimsrl.com.ar'
+$desde        = 'jesusriossantander@gmail.com'    # ← el Gmail nuevo
+$mailPassword = 'esss ailz qpot lego'       # ← contraseña de app Gmail
+$smtpServidor = 'smtp.gmail.com'
 $smtpPuerto   = 587
 
 # ── OPCIONES DE INFORME ──────────────────────────────────────
