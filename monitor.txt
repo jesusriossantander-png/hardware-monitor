@@ -8,7 +8,7 @@ $para         = 'riosjesus@esimsrl.com.ar'
 $desde        = 'riosjesus@esimsrl.com.ar'
 $mailPassword = 'uaF7iAqM21*C'
 $smtpServidor = 'mail.esimsrl.com.ar'
-$smtpPuerto   = 465
+$smtpPuerto   = 587
 
 # ── OPCIONES DE INFORME ──────────────────────────────────────
 $opEnviarInforme = $true    # $false = no manda ningun mail
