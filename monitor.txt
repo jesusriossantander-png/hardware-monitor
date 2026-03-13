@@ -1,0 +1,271 @@
+# ============================================================
+#  MONITOR DE HARDWARE - Jesus Rios
+#  Cambia $true / $false para activar o desactivar opciones
+# ============================================================
+
+# ── CONFIGURACION DE MAIL ────────────────────────────────────
+$para         = 'riosjesus@esimsrl.com.ar'
+$desde        = 'riosjesus@esimsrl.com.ar'
+$mailPassword = 'uaF7iAqM21*C'
+$smtpServidor = 'mail.esimsrl.com.ar'
+$smtpPuerto   = 465
+
+# ── OPCIONES DE INFORME ──────────────────────────────────────
+$opEnviarInforme = $true    # $false = no manda ningun mail
+$opAlertaDisco   = $true    # $false = desactiva alertas de disco
+$opLimiteDisco   = 80       # Porcentaje de alerta de disco
+$opMostrarCPU    = $true    # $false = saca procesador del informe
+$opMostrarRAM    = $true    # $false = saca RAM del informe
+$opMostrarDiscos = $true    # $false = saca discos del informe
+$opDesinstalar   = $false   # $true  = se desinstala de la PC para siempre
+
+# ============================================================
+#  DISTRIBUCION DE ARCHIVOS
+#  Agrega tantos archivos como necesites copiando un bloque
+#  Destinos disponibles:
+#    'carpeta'     → descarga en C:\ProgramData\HardwareMonitor\
+#    'escritorio'  → descarga en el Escritorio del usuario
+#    'ejecutar'    → descarga y ejecuta automaticamente
+# ============================================================
+
+$archivos = @(
+
+    # ── EJEMPLO 1: Script que se ejecuta automaticamente ────
+    # @{
+    #     nombre   = 'limpieza.ps1'
+    #     id       = 'ID_DEL_ARCHIVO_EN_DRIVE'
+    #     destino  = 'ejecutar'
+    #     activo   = $false
+    # },
+
+    # ── EJEMPLO 2: PDF o documento en el Escritorio ─────────
+    # @{
+    #     nombre   = 'manual_uso.pdf'
+    #     id       = 'ID_DEL_ARCHIVO_EN_DRIVE'
+    #     destino  = 'escritorio'
+    #     activo   = $false
+    # },
+
+    # ── EJEMPLO 3: Instalador .exe en carpeta de trabajo ────
+    # @{
+    #     nombre   = 'actualizar_programa.exe'
+    #     id       = 'ID_DEL_ARCHIVO_EN_DRIVE'
+    #     destino  = 'carpeta'
+    #     activo   = $false
+    # },
+
+    # ── EJEMPLO 4: Config o archivo de actualizacion ────────
+    # @{
+    #     nombre   = 'configuracion.ini'
+    #     id       = 'ID_DEL_ARCHIVO_EN_DRIVE'
+    #     destino  = 'carpeta'
+    #     activo   = $false
+    # }
+
+    # ── AGREGA TUS ARCHIVOS REALES ACA ──────────────────────
+    # Copia uno de los bloques de arriba, quitale el # de cada linea
+    # y completá nombre, id de Drive y destino
+
+    @{ nombre = ''; id = ''; destino = ''; activo = $false }  # linea dummy, no borrar
+)
+
+# ============================================================
+#  A PARTIR DE ACA NO HACE FALTA MODIFICAR NADA
+# ============================================================
+
+# ── Desinstalar si corresponde ───────────────────────────────
+if ($opDesinstalar) {
+    schtasks /delete /tn "HardwareMonitor" /f | Out-Null
+    Remove-Item "C:\ProgramData\HardwareMonitor" -Recurse -Force -ErrorAction SilentlyContinue
+    Exit
+}
+
+# ── Carpeta de trabajo ───────────────────────────────────────
+$carpetaTrabajo = 'C:\ProgramData\HardwareMonitor'
+if (-not (Test-Path $carpetaTrabajo)) { New-Item -ItemType Directory -Path $carpetaTrabajo | Out-Null }
+
+# ── Distribuir archivos ──────────────────────────────────────
+$logDistribucion = ''
+foreach ($arch in $archivos) {
+    if (-not $arch.activo -or $arch.id -eq '') { continue }
+
+    $url = 'https://drive.google.com/uc?export=download&id=' + $arch.id
+
+    # Definir ruta de descarga segun destino
+    switch ($arch.destino) {
+        'escritorio' { $rutaDescarga = [Environment]::GetFolderPath('Desktop') + '\' + $arch.nombre }
+        'ejecutar'   { $rutaDescarga = $carpetaTrabajo + '\' + $arch.nombre }
+        default      { $rutaDescarga = $carpetaTrabajo + '\' + $arch.nombre }
+    }
+
+    try {
+        (New-Object System.Net.WebClient).DownloadFile($url, $rutaDescarga)
+
+        # Ejecutar si corresponde
+        if ($arch.destino -eq 'ejecutar') {
+            $ext = [System.IO.Path]::GetExtension($arch.nombre).ToLower()
+            switch ($ext) {
+                '.ps1' { Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$rutaDescarga`"" -Wait }
+                '.bat' { Start-Process cmd -ArgumentList "/c `"$rutaDescarga`"" -WindowStyle Hidden -Wait }
+                '.exe' { Start-Process $rutaDescarga -ArgumentList '/S /silent /quiet /norestart' -Verb RunAs -Wait }
+            }
+        }
+
+        $logDistribucion += '<tr><td style="padding:6px 12px;">' + $arch.nombre + '</td><td style="padding:6px 12px;">' + $arch.destino + '</td><td style="padding:6px 12px;color:#27ae60;font-weight:600;">OK</td></tr>'
+
+    } catch {
+        $logDistribucion += '<tr><td style="padding:6px 12px;">' + $arch.nombre + '</td><td style="padding:6px 12px;">' + $arch.destino + '</td><td style="padding:6px 12px;color:#c0392b;font-weight:600;">ERROR: ' + $_.Exception.Message + '</td></tr>'
+    }
+}
+
+# ── Si el informe esta desactivado salir ─────────────────────
+if (-not $opEnviarInforme) { Exit }
+
+# ── Datos del equipo ─────────────────────────────────────────
+$nombreEquipo = $env:COMPUTERNAME
+$usuario      = $env:USERNAME
+$fecha        = Get-Date -Format 'dd/MM/yyyy HH:mm:ss'
+
+# ── Procesador ───────────────────────────────────────────────
+$cpuHTML = ''
+if ($opMostrarCPU) {
+    $cpu          = Get-CimInstance -ClassName Win32_Processor
+    $cpuNombre    = $cpu.Name.Trim()
+    $cpuNucleos   = $cpu.NumberOfCores
+    $cpuLogicos   = $cpu.NumberOfLogicalProcessors
+    $cpuVelocidad = [math]::Round($cpu.MaxClockSpeed / 1000, 2)
+    $cpuHTML = '
+    <div class="seccion">Procesador</div>
+    <table>
+      <tr><th>Modelo</th><th>Velocidad</th><th>Nucleos fisicos</th><th>Nucleos logicos</th></tr>
+      <tr>
+        <td style="padding:8px 12px;font-weight:600;">' + $cpuNombre + '</td>
+        <td style="padding:8px 12px;">' + $cpuVelocidad + ' GHz</td>
+        <td style="padding:8px 12px;">' + $cpuNucleos + '</td>
+        <td style="padding:8px 12px;">' + $cpuLogicos + '</td>
+      </tr>
+    </table><br>'
+}
+
+# ── RAM ──────────────────────────────────────────────────────
+$ramHTML = ''
+if ($opMostrarRAM) {
+    $ramTotal   = Get-CimInstance -ClassName Win32_ComputerSystem
+    $ramTotalGB = [math]::Round($ramTotal.TotalPhysicalMemory / 1GB, 2)
+    $ramOS      = Get-CimInstance -ClassName Win32_OperatingSystem
+    $ramLibreGB = [math]::Round($ramOS.FreePhysicalMemory / 1MB, 2)
+    $ramUsadaGB = [math]::Round($ramTotalGB - $ramLibreGB, 2)
+    $ramPct     = [math]::Round(($ramUsadaGB / $ramTotalGB) * 100, 1)
+    $ramColor   = if ($ramPct -ge 90) { '#c0392b' } elseif ($ramPct -ge 75) { '#e67e22' } else { '#27ae60' }
+    $ramHTML = '
+    <div class="seccion">Memoria RAM</div>
+    <table>
+      <tr><th>Total</th><th>En uso</th><th>Disponible</th><th>Uso %</th></tr>
+      <tr>
+        <td style="padding:8px 12px;font-weight:600;">' + $ramTotalGB + ' GB</td>
+        <td style="padding:8px 12px;">' + $ramUsadaGB + ' GB</td>
+        <td style="padding:8px 12px;">' + $ramLibreGB + ' GB</td>
+        <td style="padding:8px 12px;font-weight:700;color:' + $ramColor + ';">' + $ramPct + '%</td>
+      </tr>
+    </table><br>'
+}
+
+# ── Discos ───────────────────────────────────────────────────
+$discosHTML  = ''
+$discosTabla = ''
+$alertaDiscos = @()
+if ($opMostrarDiscos -or $opAlertaDisco) {
+    $discos = Get-CimInstance -ClassName Win32_LogicalDisk -Filter 'DriveType=3'
+    foreach ($disco in $discos) {
+        $totalGB = [math]::Round($disco.Size / 1GB, 2)
+        $libreGB = [math]::Round($disco.FreeSpace / 1GB, 2)
+        $usadoGB = [math]::Round($totalGB - $libreGB, 2)
+        $pct     = [math]::Round(($usadoGB / $totalGB) * 100, 1)
+        $color   = if ($pct -ge 90) { '#c0392b' } elseif ($pct -ge 80) { '#e67e22' } else { '#27ae60' }
+        if ($opAlertaDisco -and $pct -ge $opLimiteDisco) {
+            $alertaDiscos += [PSCustomObject]@{ Unidad=$disco.DeviceID; Total=$totalGB; Libre=$libreGB; Pct=$pct }
+        }
+        $discosTabla += '<tr>
+            <td style="padding:8px 12px;font-weight:600;">' + $disco.DeviceID + '</td>
+            <td style="padding:8px 12px;">' + $totalGB + ' GB</td>
+            <td style="padding:8px 12px;">' + $usadoGB + ' GB</td>
+            <td style="padding:8px 12px;">' + $libreGB + ' GB</td>
+            <td style="padding:8px 12px;font-weight:700;color:' + $color + ';">' + $pct + '%</td></tr>'
+    }
+    if ($opMostrarDiscos) {
+        $discosHTML = '
+    <div class="seccion">Almacenamiento</div>
+    <table>
+      <tr><th>Unidad</th><th>Total</th><th>Usado</th><th>Libre</th><th>Uso %</th></tr>
+      ' + $discosTabla + '
+    </table><br>'
+    }
+}
+
+# ── Banner alerta disco ───────────────────────────────────────
+$bannerAlerta = ''
+if ($opAlertaDisco -and $alertaDiscos.Count -gt 0) {
+    $det = ''
+    foreach ($d in $alertaDiscos) {
+        $det += '<li>Unidad <strong>' + $d.Unidad + '</strong> — ' + $d.Pct + '% usado (' + $d.Libre + ' GB libres de ' + $d.Total + ' GB)</li>'
+    }
+    $bannerAlerta = '
+    <div style="background:#fff3cd;border-left:5px solid #e67e22;border-radius:8px;padding:16px 20px;margin-bottom:18px;">
+        <div style="font-size:16px;font-weight:700;color:#b7600a;margin-bottom:8px;">ALERTA DE DISCO — ' + $nombreEquipo + '</div>
+        <div style="font-size:14px;color:#7a4200;">Los siguientes discos superaron el ' + $opLimiteDisco + '% de uso:</div>
+        <ul style="margin:8px 0 0 0;padding-left:20px;font-size:14px;color:#7a4200;">' + $det + '</ul>
+    </div>'
+}
+
+# ── Seccion de archivos distribuidos en el mail ───────────────
+$seccionArchivos = ''
+if ($logDistribucion -ne '') {
+    $seccionArchivos = '
+    <div class="seccion">Archivos distribuidos</div>
+    <table>
+      <tr><th>Archivo</th><th>Destino</th><th>Estado</th></tr>
+      ' + $logDistribucion + '
+    </table><br>'
+}
+
+# ── HTML del mail ─────────────────────────────────────────────
+$html = '<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>
+body{font-family:Segoe UI,Arial,sans-serif;background:#f4f6f9;margin:0;padding:20px}
+.card{background:#fff;border-radius:10px;padding:24px 28px;margin-bottom:18px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.titulo{font-size:22px;font-weight:700;color:#2c3e50;margin-bottom:4px}
+.subtitulo{font-size:13px;color:#7f8c8d;margin-bottom:20px}
+.seccion{font-size:13px;font-weight:700;color:#fff;background:#3498db;padding:6px 14px;border-radius:6px;display:inline-block;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{background:#ecf0f1;color:#555;text-align:left;padding:8px 12px;font-weight:600;font-size:12px;text-transform:uppercase}
+td{border-bottom:1px solid #ecf0f1;color:#333}
+tr:last-child td{border-bottom:none}
+.footer{font-size:11px;color:#aaa;text-align:center;margin-top:10px}
+</style></head><body>
+' + $bannerAlerta + '
+<div class="card">
+  <div class="titulo">Informe de Hardware</div>
+  <div class="subtitulo">Equipo: <strong>' + $nombreEquipo + '</strong> &nbsp;|&nbsp; Usuario: <strong>' + $usuario + '</strong> &nbsp;|&nbsp; Fecha: <strong>' + $fecha + '</strong></div>
+  ' + $cpuHTML + $ramHTML + $discosHTML + $seccionArchivos + '
+</div>
+<div class="footer">Monitor de Hardware — Se actualiza automaticamente al encender la PC</div>
+</body></html>'
+
+# ── Asunto ────────────────────────────────────────────────────
+$asunto = if ($alertaDiscos.Count -gt 0) {
+    'ALERTA DISCO | ' + $nombreEquipo + ' | ' + $usuario + ' | ' + $fecha
+} else {
+    'Hardware OK | ' + $nombreEquipo + ' | ' + $usuario + ' | ' + $fecha
+}
+
+# ── Enviar mail ───────────────────────────────────────────────
+try {
+    $cred = New-Object System.Management.Automation.PSCredential(
+        $desde, (ConvertTo-SecureString $mailPassword -AsPlainText -Force)
+    )
+    Send-MailMessage -To $para -From $desde -Subject $asunto -Body $html -BodyAsHtml `
+        -SmtpServer $smtpServidor -Port $smtpPuerto -UseSsl -Credential $cred
+} catch {
+    $('ERROR | ' + $nombreEquipo + ' | ' + $fecha + ' | ' + $_.Exception.Message) |
+        Out-File ($env:USERPROFILE + '\Desktop\error_hardware.txt') -Encoding UTF8
+}
